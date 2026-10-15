@@ -121,6 +121,10 @@ the hop *to* DELIVERED fires only `_delivered`, already-delivered fires nothing,
 `senderShipments`, so returns are covered for free; **no** outgoing `registered`
 / `delivery_time_changed`.
 
+**Unconfirmed delivery details pass through, not guessed.** Fields in
+`_UNCONFIRMED_DETAILS` stay as PostNL sent them until a real payload confirms
+their shape; their first appearance logs the structure only (PII).
+
 ## Planned / skipped
 
 - **Planned (next major)**: exception translations; per-letter events (e.g.

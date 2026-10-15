@@ -33,6 +33,7 @@ from custom_components.postnl.parcels import (
     _delivery_dt,
     _extract_observations,
     build_history,
+    delivery_details,
     derive_observation_status,
     map_observation_status,
     map_parcel_status,
@@ -1954,3 +1955,88 @@ def test_capabilities_are_known_values():
 def test_capabilities_omit_pickup_point():
     """PostNL never names the actual service point — pickup_point stays None."""
     assert "pickup_point" not in CAPABILITIES
+
+
+def test_delivery_details_normalises_the_confirmed_fields():
+    details = delivery_details({
+        "routeInformation": {
+            "expectedDeliveryTimeWindow": {
+                "startDateTime": "2026-06-17T12:36:00+02:00",
+                "endDateTime": "2026-06-17T13:36:00+02:00",
+            },
+        },
+        "isDelayed": True,
+        "details": {"isRegistered": True, "isInsured": False},
+        "isPincodeAtDoorShipment": True,
+        "retailPickupBarcode": "R3SABC",
+        "extraInformation": [
+            {"type": "LargeShipment", "text": "Large parcel"},
+            {"type": "Empty", "text": None},
+        ],
+        "relatedCollos": [{}, {}],
+    })
+    assert details["expected_from"] == "2026-06-17T12:36:00+02:00"
+    assert details["expected_to"] == "2026-06-17T13:36:00+02:00"
+    assert details["delayed"] is True
+    assert details["registered"] is True
+    assert details["insured"] is False
+    assert details["pincode_at_door"] is True
+    assert details["pickup_barcode"] == "R3SABC"
+    assert details["notes"] == ["Large parcel"]
+    assert details["related_parcels"] == 2
+
+
+def test_delivery_details_defaults_without_logging(caplog):
+    details = delivery_details({})
+    assert details["expected_from"] is None
+    assert details["delayed"] is False
+    assert details["notes"] == []
+    assert details["related_parcels"] == 0
+    assert details["pickup_location"] is None
+    assert "not seen before" not in caplog.text
+
+
+def test_unconfirmed_detail_passes_through_and_logs_its_shape_once(caplog):
+    location = {"name": "Corner shop", "address": {"street": "Main street"}}
+    colli = {
+        "retailDeliveryLocation": location,
+        "routeInformation": {"numberOfStopsRemaining": 3},
+        "alerts": [{"message": "Held at the depot"}],
+    }
+    details = delivery_details(colli)
+    assert details["pickup_location"] == location
+    assert details["stops_remaining"] == 3
+    assert "retailDeliveryLocation={address: {street: str}, name: str}" in caplog.text
+    assert "routeInformation.numberOfStopsRemaining=int" in caplog.text
+    assert "alerts=[{message: str}]" in caplog.text
+    # Structure only: a pickup address or name must never reach the log.
+    assert "Corner shop" not in caplog.text
+    assert "Main street" not in caplog.text
+    assert "Held at the depot" not in caplog.text
+    caplog.clear()
+    delivery_details(colli)
+    assert "not seen before" not in caplog.text
+
+
+async def test_transform_shipment_adds_delivery_details_to_raw(hass):
+    coordinator = _make_coordinator(hass)
+    coordinator.jouw_api.track_and_trace = MagicMock(return_value={
+        "colli": {
+            "3SABC": {
+                "statusPhase": {"message": "Bezorger is onderweg"},
+                "isDelayed": True,
+                "routeInformation": {
+                    "expectedDeliveryTime": "2026-06-17T13:06:00+02:00",
+                    "expectedDeliveryTimeWindow": {
+                        "startDateTime": "2026-06-17T12:36:00+02:00",
+                        "endDateTime": "2026-06-17T13:36:00+02:00",
+                    },
+                },
+            }
+        }
+    })
+    shipment = {"key": "K2", "barcode": "3SABC", "title": "Brand", "delivered": False}
+    parcel = await coordinator.transform_shipment(shipment)
+    assert parcel["raw"]["expected_from"] == "2026-06-17T12:36:00+02:00"
+    assert parcel["raw"]["expected_to"] == "2026-06-17T13:36:00+02:00"
+    assert parcel["raw"]["delayed"] is True

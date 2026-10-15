@@ -24,6 +24,7 @@ def reset_one_shot_warnings():
 
     parcels._LOGGED_UNKNOWN_STATUSES.clear()
     parcels._LOGGED_UNKNOWN_OBSERVATION_CODES.clear()
+    parcels._LOGGED_UNCONFIRMED_DETAILS.clear()
     yield
 
 

@@ -36,6 +36,7 @@ from .parcels import (
     _apply_delivered_filter,
     _extract_observations,
     build_history,
+    delivery_details,
     normalize_parcel,
     sort_parcels_by_ts,
 )
@@ -594,6 +595,7 @@ class PostNLCoordinator(DataUpdateCoordinator):
             native_dimensions: dict | None = None
             history: list[dict] | None = None
             observations: list[dict] = []
+            details: dict = {}
 
             if colli:
                 _LOGGER.debug("Colli details found for shipment %s: %s", shipment['key'], colli)
@@ -624,6 +626,7 @@ class PostNLCoordinator(DataUpdateCoordinator):
                 # gates whether the full timeline is *exposed* on `history`.
                 observations = _extract_observations(colli)
                 history = build_history(observations) if self._include_history else None
+                details = delivery_details(colli)
             else:
                 _LOGGER.debug("Barcode not found in colli details for shipment %s.", shipment['key'])
                 planned_date = shipment.get('deliveryWindowFrom')
@@ -659,6 +662,7 @@ class PostNLCoordinator(DataUpdateCoordinator):
                 # users; ``normalize_parcel`` reads it and produces the
                 # canonical kg + cm + ``text`` shape at the top level.
                 "dimensions": native_dimensions,
+                **details,
             }, history=history)
             barcode = shipment.get('barcode')
             if barcode and colli:

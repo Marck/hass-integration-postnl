@@ -163,6 +163,21 @@ _NEW_ISSUE_URL = (
 # session rather than on every poll.
 _LOGGED_UNKNOWN_STATUSES: set[str] = set()
 _LOGGED_UNKNOWN_OBSERVATION_CODES: set[str] = set()
+_LOGGED_UNCONFIRMED_DETAILS: set[str] = set()
+
+# Track & Trace details PostNL fills only in some situations (pickup point,
+# customs, PIN delivery, a nearby driver). None has been seen populated on a
+# real parcel yet, so each is passed through untouched and its *structure*
+# (never its value) is logged once when it first appears.
+_UNCONFIRMED_DETAILS: dict[str, tuple[str, ...]] = {
+    "stops_remaining": ("routeInformation", "numberOfStopsRemaining"),
+    "pickup_location": ("retailDeliveryLocation",),
+    "pickup_deadline": ("expectedReturnDate",),
+    "customs_fees": ("customsFees",),
+    "cash_on_delivery": ("details", "cashOnDelivery"),
+    "pincode_status": ("pincodeStatus",),
+    "alerts": ("alerts",),
+}
 
 
 def map_parcel_status(parcel: dict) -> ParcelStatus:
@@ -453,6 +468,61 @@ def normalize_parcel(parcel: dict, *, history: list[dict] | None = None) -> dict
         "history": history,
         "raw": parcel,
     }
+
+
+def _shape(value) -> str:
+    """Describe a value's structure without any of its content (PII-safe)."""
+    if isinstance(value, dict):
+        inner = ", ".join(f"{k}: {_shape(v)}" for k, v in sorted(value.items()))
+        return "{" + inner + "}"
+    if isinstance(value, list):
+        return f"[{_shape(value[0])}]" if value else "[]"
+    return type(value).__name__
+
+
+def delivery_details(colli: dict) -> dict:
+    """Return the delivery details a Track & Trace ``colli`` adds to ``raw``.
+
+    The live window around the driver's ETA, the delay flag, registered /
+    insured mail, PostNL's notes and the parcel count of a multi-parcel
+    shipment have a confirmed shape and are normalised. The fields in
+    :data:`_UNCONFIRMED_DETAILS` are passed through as-is.
+    """
+    route = colli.get("routeInformation") or {}
+    window = route.get("expectedDeliveryTimeWindow") or {}
+    details = colli.get("details") or {}
+    result = {
+        "expected_from": window.get("startDateTime"),
+        "expected_to": window.get("endDateTime"),
+        "delayed": bool(colli.get("isDelayed")),
+        "registered": bool(details.get("isRegistered")),
+        "insured": bool(details.get("isInsured")),
+        "pincode_at_door": bool(colli.get("isPincodeAtDoorShipment")),
+        "pickup_barcode": colli.get("retailPickupBarcode"),
+        "notes": [
+            note["text"]
+            for note in colli.get("extraInformation") or []
+            if isinstance(note, dict) and note.get("text")
+        ],
+        "related_parcels": len(colli.get("relatedCollos") or []),
+    }
+    for key, path in _UNCONFIRMED_DETAILS.items():
+        value = colli
+        for part in path:
+            value = value.get(part) if isinstance(value, dict) else None
+        result[key] = value
+        field = ".".join(path)
+        if value not in (None, "", [], {}) and field not in _LOGGED_UNCONFIRMED_DETAILS:
+            _LOGGED_UNCONFIRMED_DETAILS.add(field)
+            _LOGGER.warning(
+                "PostNL sent a parcel detail we have not seen before, help us "
+                "confirm it. Open an issue and paste this line: %s\n"
+                "  [details] %s=%s",
+                _NEW_ISSUE_URL,
+                field,
+                _shape(value),
+            )
+    return result
 
 
 def _parse_iso(value: str | None) -> datetime | None:

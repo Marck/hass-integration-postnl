@@ -176,6 +176,20 @@ Every parcel exposed on a sensor attribute uses a carrier-agnostic shape:
 | `history` | list \| null | Ordered status timeline (oldest → newest), each entry `{timestamp, status, raw_status}`, capped to the most recent 20. `null` unless the **Parcel history** option is enabled — see [Options](#options). |
 | `raw` | dict | The original PostNL payload |
 
+While a parcel is on its way, `raw` also carries delivery details for
+automations and notifications:
+
+| Key | Meaning |
+|---|---|
+| `expected_from` / `expected_to` | Live delivery window around the driver's ETA |
+| `delayed` | PostNL marks the parcel as delayed |
+| `registered` / `insured` | Registered or insured mail (someone may need to sign) |
+| `pincode_at_door` | Delivery needs a PIN code at the door |
+| `pickup_barcode` | Code to show when collecting at a PostNL Point |
+| `notes` | PostNL's notes on the parcel, e.g. a large parcel |
+| `related_parcels` | Number of other parcels in the same shipment |
+| `stops_remaining`, `pickup_location`, `pickup_deadline`, `customs_fees`, `cash_on_delivery`, `pincode_status`, `alerts` | Passed through as PostNL sends them; their exact format is not confirmed yet |
+
 Each announced letter is exposed as an `image` entity so the scan
 loads directly in dashboards and notifications. See
 [`examples/automations/notify_when_letter_arrives.yaml`](examples/automations/notify_when_letter_arrives.yaml)

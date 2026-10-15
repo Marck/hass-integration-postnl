@@ -210,6 +210,16 @@ codes stay `null` and do **not** carry forward.
 **Do not undo this**, and do not assign a fixed status to ETA codes — that is
 wrong by construction.
 
+## Delivery details under `raw`
+
+`delivery_details()` adds what Track & Trace knows beyond the canonical shape
+(live ETA window, delay, registered / insured, PIN-at-door, notes, parcel
+count) to `raw`, on the active path only. Fields never yet seen populated on a
+real parcel (pickup location and deadline, customs fees, stops remaining, cash
+on delivery, PIN status, alerts) are passed through untouched rather than
+guessed, and their structure, never their value, is logged once so the shape
+can be confirmed and normalised later.
+
 ## Resilience and caching
 
 **One broken parcel no longer fails the refresh.** The active-path Track & Trace
